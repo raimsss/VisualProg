@@ -1,0 +1,24 @@
+{
+  "name": "visualprog",
+  "version": "1.0.0",
+  "description": "Беккер Николай Олегович ИП-413 Визуальное программирование",
+  "main": "index.js",
+  "scripts": {
+    "test": "vitest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/raimsss/VisualProg.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/raimsss/VisualProg/issues"
+  },
+  "homepage": "https://github.com/raimsss/VisualProg#readme",
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^1.6.1"
+  }
+}
