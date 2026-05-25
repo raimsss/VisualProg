@@ -6,6 +6,9 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+coverage
+playwright-report
+test-results
 
 # Dependencies
 node_modules
@@ -13,6 +16,8 @@ dist
 dist-ssr
 *.local
 .test-build
+.vite
+.cache
 
 # Editor directories and files
 .vscode/*
@@ -21,6 +26,9 @@ dist-ssr
 .gigaide
 .agents
 .DS_Store
+.env
+.env.*
+!.env.example
 *.suo
 *.ntvs*
 *.njsproj

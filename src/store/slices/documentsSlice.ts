@@ -3,8 +3,7 @@ import type { RootState } from '../store.js';
 import { loadSpreadsheet, markSaved } from './spreadsheetSlice.js';
 import { setSaveStatus } from './uiSlice.js';
 import type { Document, DocumentDraft } from '../../types.js';
-
-const STORAGE_KEY = 'visualprog-documents';
+import { documentService } from '../../services/documentService.js';
 
 interface DocumentsState {
   items: Document[];
@@ -18,19 +17,8 @@ const initialState: DocumentsState = {
   status: 'idle',
 };
 
-function readDocs(): Document[] {
-  if (typeof localStorage === 'undefined') {
-    return [];
-  }
-
-  const saved = localStorage.getItem(STORAGE_KEY);
-  return saved ? JSON.parse(saved) as Document[] : [];
-}
-
 function writeDocs(docs: Document[]) {
-  if (typeof localStorage !== 'undefined') {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(docs));
-  }
+  documentService.saveDocuments(docs);
 }
 
 function makeDocument(draft: DocumentDraft, ownerId: string): Document {
@@ -54,14 +42,18 @@ export const loadDocuments = createAsyncThunk<Document[], void, { state: RootSta
   'documents/loadDocuments',
   async (_, { getState }) => {
     const userId = getState().auth.user.id;
-    return readDocs().filter(doc => doc.ownerId === userId);
+    return documentService.listDocuments(userId);
   },
 );
 
 export const loadDocument = createAsyncThunk<Document, string, { state: RootState }>(
   'documents/loadDocument',
   async (id, { getState, dispatch }) => {
-    const document = getState().documents.items.find(doc => doc.id === id);
+    const state = getState();
+    const userId = state.auth.user.id;
+    const document = state.documents.items.find(doc => doc.id === id)
+      ?? documentService.getDocument(userId, id);
+
     if (!document) {
       throw new Error('Документ не найден');
     }
@@ -91,8 +83,7 @@ export const saveActiveDocument = createAsyncThunk<Document, void, { state: Root
       data: state.spreadsheet.cells,
     };
 
-    const docs = state.documents.items.map(doc => doc.id === updated.id ? updated : doc);
-    writeDocs(docs);
+    documentService.saveDocument(updated);
     dispatch(markSaved());
     dispatch(setSaveStatus('saved'));
     return updated;
@@ -107,7 +98,7 @@ const documentsSlice = createSlice({
       reducer(state, action: PayloadAction<Document>) {
         state.items.push(action.payload);
         state.activeDocumentId = action.payload.id;
-        writeDocs(state.items);
+        documentService.saveDocument(action.payload);
       },
       prepare(payload: { draft: DocumentDraft; ownerId: string }) {
         return {
@@ -167,6 +158,9 @@ const documentsSlice = createSlice({
         state.status = 'error';
       })
       .addCase(loadDocument.fulfilled, (state, action) => {
+        if (!state.items.some(doc => doc.id === action.payload.id)) {
+          state.items.push(action.payload);
+        }
         state.activeDocumentId = action.payload.id;
       })
       .addCase(saveActiveDocument.fulfilled, (state, action) => {

@@ -1,8 +1,13 @@
 import { useEffect } from 'react';
-import Dashboard from './components/Dashboard';
-import Spreadsheet from './components/Spreadsheet';
+import { Navigate, Route, Routes } from 'react-router-dom';
+import AppLayout from './layouts/AppLayout';
+import DashboardPage from './pages/DashboardPage';
+import NotFoundPage from './pages/NotFoundPage';
+import ProfilePage from './pages/ProfilePage';
+import SpreadsheetPage from './pages/SpreadsheetPage';
+import ProtectedRoute from './routes/ProtectedRoute';
 import { useAppDispatch, useAppSelector } from './store/hooks';
-import { closeDocument, loadDocuments, saveActiveDocument } from './store/slices/documentsSlice';
+import { loadDocuments, saveActiveDocument } from './store/slices/documentsSlice';
 import { redo, undo } from './store/slices/spreadsheetSlice';
 
 export default function App() {
@@ -52,12 +57,19 @@ export default function App() {
   }, [dirty]);
 
   return (
-    <div className="app-container">
-      {activeDocumentId ? (
-        <Spreadsheet onBack={() => dispatch(closeDocument())} />
-      ) : (
-        <Dashboard />
-      )}
-    </div>
+    <Routes>
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+
+      <Route element={<ProtectedRoute />}>
+        <Route element={<AppLayout />}>
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/documents/:documentId" element={<SpreadsheetPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
+        </Route>
+      </Route>
+
+      <Route path="/404" element={<NotFoundPage />} />
+      <Route path="*" element={<NotFoundPage />} />
+    </Routes>
   );
 }

@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Copy, FileSpreadsheet, Pencil, Plus, Trash2 } from 'lucide-react';
 import { getCellId } from '../cells';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
@@ -6,7 +7,6 @@ import {
   createDocument,
   deleteDocument,
   duplicateDocument,
-  loadDocument,
   renameDocument,
 } from '../store/slices/documentsSlice';
 import { loadSpreadsheet } from '../store/slices/spreadsheetSlice';
@@ -15,6 +15,7 @@ import type { DocumentDraft } from '../types';
 
 export default function Dashboard() {
   const dispatch = useAppDispatch();
+  const navigate = useNavigate();
   const docs = useAppSelector(state => state.documents.items);
   const userId = useAppSelector(state => state.auth.user.id);
   const modalOpen = useAppSelector(state => state.ui.createModalOpen);
@@ -32,6 +33,7 @@ export default function Dashboard() {
     const action = createDocument({ draft, ownerId: userId });
     dispatch(action);
     dispatch(loadSpreadsheet(action.payload));
+    navigate(`/documents/${action.payload.id}`);
     dispatch(closeCreateModal());
     setDraft({ title: 'Новая таблица', rows: 100, cols: 26 });
   };
@@ -47,7 +49,7 @@ export default function Dashboard() {
 
       <div className="docs-grid">
         {docs.map(doc => (
-          <article key={doc.id} className="doc-card" onClick={() => dispatch(loadDocument(doc.id))}>
+          <article key={doc.id} className="doc-card" onClick={() => navigate(`/documents/${doc.id}`)}>
             <div className="doc-head">
               <FileSpreadsheet size={30} color="#24723a" />
               <div>
