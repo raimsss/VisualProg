@@ -1,47 +1,53 @@
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { Copy, FileSpreadsheet, Pencil, Plus, Trash2 } from 'lucide-react';
 import { getCellId } from '../cells';
-import type { Document, DocumentDraft } from '../types';
+import { useAppDispatch, useAppSelector } from '../store/hooks';
+import {
+  createDocument,
+  deleteDocument,
+  duplicateDocument,
+  loadDocument,
+  renameDocument,
+} from '../store/slices/documentsSlice';
+import { loadSpreadsheet } from '../store/slices/spreadsheetSlice';
+import { closeCreateModal, openCreateModal } from '../store/slices/uiSlice';
+import type { DocumentDraft } from '../types';
 
-interface DashboardProps {
-  docs: Document[];
-  onSelect: (doc: Document) => void;
-  onCreate: (draft: DocumentDraft) => void;
-  onDelete: (id: string) => void;
-  onDuplicate: (id: string) => void;
-  onRename: (id: string, title: string) => void;
-}
-
-export default function Dashboard({
-  docs,
-  onSelect,
-  onCreate,
-  onDelete,
-  onDuplicate,
-  onRename,
-}: DashboardProps) {
-  const [modalOpen, setModalOpen] = useState(false);
+export default function Dashboard() {
+  const dispatch = useAppDispatch();
+  const docs = useAppSelector(state => state.documents.items);
+  const userId = useAppSelector(state => state.auth.user.id);
+  const modalOpen = useAppSelector(state => state.ui.createModalOpen);
   const [draft, setDraft] = useState<DocumentDraft>({ title: 'Новая таблица', rows: 100, cols: 26 });
 
-  const renameDoc = (doc: Document) => {
-    const title = prompt('Новое название', doc.title)?.trim();
+  const rename = (id: string, oldTitle: string) => {
+    const title = prompt('Новое название', oldTitle)?.trim();
     if (title) {
-      onRename(doc.id, title);
+      dispatch(renameDocument({ id, title }));
     }
+  };
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    const action = createDocument({ draft, ownerId: userId });
+    dispatch(action);
+    dispatch(loadSpreadsheet(action.payload));
+    dispatch(closeCreateModal());
+    setDraft({ title: 'Новая таблица', rows: 100, cols: 26 });
   };
 
   return (
     <main className="dashboard">
       <div className="topbar">
         <h1>Мои документы</h1>
-        <button onClick={() => setModalOpen(true)} className="btn primary">
+        <button onClick={() => dispatch(openCreateModal())} className="btn primary">
           <Plus size={18} /> Создать
         </button>
       </div>
 
       <div className="docs-grid">
         {docs.map(doc => (
-          <article key={doc.id} className="doc-card" onClick={() => onSelect(doc)}>
+          <article key={doc.id} className="doc-card" onClick={() => dispatch(loadDocument(doc.id))}>
             <div className="doc-head">
               <FileSpreadsheet size={30} color="#24723a" />
               <div>
@@ -67,9 +73,13 @@ export default function Dashboard({
             </div>
 
             <div className="doc-actions" onClick={(event) => event.stopPropagation()}>
-              <button title="Переименовать" onClick={() => renameDoc(doc)}><Pencil size={16} /></button>
-              <button title="Дублировать" onClick={() => onDuplicate(doc.id)}><Copy size={16} /></button>
-              <button title="Удалить" onClick={() => onDelete(doc.id)}><Trash2 size={16} /></button>
+              <button title="Переименовать" onClick={() => rename(doc.id, doc.title)}><Pencil size={16} /></button>
+              <button title="Дублировать" onClick={() => dispatch(duplicateDocument(doc.id))}><Copy size={16} /></button>
+              <button title="Удалить" onClick={() => {
+                if (window.confirm('Удалить документ?')) {
+                  dispatch(deleteDocument(doc.id));
+                }
+              }}><Trash2 size={16} /></button>
             </div>
           </article>
         ))}
@@ -77,15 +87,7 @@ export default function Dashboard({
 
       {modalOpen && (
         <div className="modal-backdrop">
-          <form
-            className="modal"
-            onSubmit={(event) => {
-              event.preventDefault();
-              onCreate(draft);
-              setModalOpen(false);
-              setDraft({ title: 'Новая таблица', rows: 100, cols: 26 });
-            }}
-          >
+          <form className="modal" onSubmit={submit}>
             <h2>Новый документ</h2>
             <label>
               Название
@@ -118,7 +120,7 @@ export default function Dashboard({
               </label>
             </div>
             <div className="modal-actions">
-              <button className="btn" type="button" onClick={() => setModalOpen(false)}>Отмена</button>
+              <button className="btn" type="button" onClick={() => dispatch(closeCreateModal())}>Отмена</button>
               <button className="btn primary" type="submit">Создать</button>
             </div>
           </form>

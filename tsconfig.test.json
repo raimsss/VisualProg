@@ -10,5 +10,6 @@
     "types": ["node"],
     "verbatimModuleSyntax": true
   },
-  "include": ["src/cells.ts", "src/types.ts", "tests/**/*.ts"]
+  "include": ["src/**/*.ts", "tests/**/*.ts"],
+  "exclude": ["src/**/*.tsx"]
 }

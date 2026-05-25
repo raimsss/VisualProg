@@ -1,16 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, Save, Upload } from 'lucide-react';
 import {
-  DEFAULT_COLS,
-  DEFAULT_ROWS,
   getCellId,
   getColumnName,
   makeCell,
+  parseCellId,
   parseCsv,
-  recalculateCells,
   toCsv,
 } from '../cells';
-import type { Document, SpreadsheetData } from '../types';
+import { useAppDispatch, useAppSelector } from '../store/hooks';
+import { saveActiveDocument } from '../store/slices/documentsSlice';
+import {
+  deleteCol,
+  deleteRow,
+  importData,
+  insertCol,
+  insertRow,
+  resizeCol,
+  resizeRow,
+  selectCell,
+  setCell,
+} from '../store/slices/spreadsheetSlice';
+import type { SpreadsheetData } from '../types';
 
 const DEFAULT_COL_WIDTH = 100;
 const DEFAULT_ROW_HEIGHT = 30;
@@ -18,10 +29,7 @@ const SHEET_HEIGHT = 620;
 const OVERSCAN = 8;
 
 interface SpreadsheetProps {
-  doc: Document;
   onBack: () => void;
-  onSave: (data: SpreadsheetData) => Promise<void>;
-  onChangeDoc: (patch: Partial<Document>) => Promise<void>;
 }
 
 interface MenuState {
@@ -30,8 +38,6 @@ interface MenuState {
   row: number;
   col: number;
 }
-
-type SaveState = 'saved' | 'saving' | 'error';
 
 function downloadFile(name: string, content: string, type: string) {
   const blob = new Blob([content], { type });
@@ -43,65 +49,53 @@ function downloadFile(name: string, content: string, type: string) {
   URL.revokeObjectURL(url);
 }
 
-function shiftRows(data: SpreadsheetData, startRow: number, delta: number): SpreadsheetData {
-  const entries = Object.entries(data);
-  const next: SpreadsheetData = {};
+function isSelected(id: string, from: string, to: string) {
+  const start = parseCellId(from);
+  const end = parseCellId(to);
+  const current = parseCellId(id);
 
-  entries.forEach(([id, cell]) => {
-    const match = id.match(/^([A-Z]+)(\d+)$/);
-    if (!match) {
-      return;
-    }
-    const row = Number(match[2]) - 1;
-    if (delta < 0 && row === startRow) {
-      return;
-    }
-    const newRow = row >= startRow ? row + delta : row;
-    if (newRow >= 0) {
-      next[`${match[1]}${newRow + 1}`] = cell;
-    }
-  });
+  if (!start || !end || !current) {
+    return false;
+  }
 
-  return recalculateCells(next);
+  return current.row >= Math.min(start.row, end.row)
+    && current.row <= Math.max(start.row, end.row)
+    && current.col >= Math.min(start.col, end.col)
+    && current.col <= Math.max(start.col, end.col);
 }
 
-function shiftCols(data: SpreadsheetData, startCol: number, delta: number): SpreadsheetData {
-  const next: SpreadsheetData = {};
-
-  Object.entries(data).forEach(([id, cell]) => {
-    const match = id.match(/^([A-Z]+)(\d+)$/);
-    if (!match) {
-      return;
-    }
-    const col = match[1].split('').reduce((sum, letter) => sum * 26 + letter.charCodeAt(0) - 64, 0) - 1;
-    if (delta < 0 && col === startCol) {
-      return;
-    }
-    const newCol = col >= startCol ? col + delta : col;
-    if (newCol >= 0) {
-      next[`${getColumnName(newCol)}${match[2]}`] = cell;
-    }
-  });
-
-  return recalculateCells(next);
-}
-
-export default function Spreadsheet({ doc, onBack, onSave, onChangeDoc }: SpreadsheetProps) {
+export default function Spreadsheet({ onBack }: SpreadsheetProps) {
+  const dispatch = useAppDispatch();
   const fileRef = useRef<HTMLInputElement>(null);
-  const sheetRef = useRef<HTMLDivElement>(null);
-  const [cells, setCells] = useState<SpreadsheetData>(doc.data);
-  const [rows, setRows] = useState(doc.rows || DEFAULT_ROWS);
-  const [cols, setCols] = useState(doc.cols || DEFAULT_COLS);
-  const [colWidths, setColWidths] = useState<Record<number, number>>(doc.colWidths || {});
-  const [rowHeights, setRowHeights] = useState<Record<number, number>>(doc.rowHeights || {});
-  const [active, setActive] = useState(getCellId(0, 0));
+  const activeDocument = useAppSelector(state => (
+    state.documents.items.find(doc => doc.id === state.documents.activeDocumentId)
+  ));
+  const saveStatus = useAppSelector(state => state.ui.saveStatus);
+  const {
+    activeCell,
+    cells,
+    colWidths,
+    cols,
+    rowHeights,
+    rows,
+    selectionEnd,
+    selectionStart,
+  } = useAppSelector(state => state.spreadsheet);
+
   const [editing, setEditing] = useState<string | null>(null);
-  const [selectionStart, setSelectionStart] = useState(getCellId(0, 0));
-  const [selectionEnd, setSelectionEnd] = useState(getCellId(0, 0));
   const [scrollTop, setScrollTop] = useState(0);
   const [menu, setMenu] = useState<MenuState | null>(null);
-  const [saveState, setSaveState] = useState<SaveState>('saved');
-  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Enter' && !editing) {
+        setEditing(activeCell);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeCell, editing]);
 
   const rowTop = useMemo(() => {
     const tops: number[] = [];
@@ -119,169 +113,25 @@ export default function Spreadsheet({ doc, onBack, onSave, onChangeDoc }: Spread
   const endRow = Math.min(rows - 1, startRow + Math.ceil(SHEET_HEIGHT / DEFAULT_ROW_HEIGHT) + OVERSCAN * 2);
   const visibleRows = Array.from({ length: Math.max(0, endRow - startRow + 1) }, (_, index) => startRow + index);
 
-  useEffect(() => {
-    if (!dirty) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      onSave(cells)
-        .then(() => {
-          setDirty(false);
-          setSaveState('saved');
-        })
-        .catch(() => setSaveState('error'));
-    }, 500);
-
-    return () => window.clearTimeout(timer);
-  }, [cells, dirty, onSave]);
-
-  useEffect(() => {
-    const onBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (dirty) {
-        event.preventDefault();
-      }
-    };
-    window.addEventListener('beforeunload', onBeforeUnload);
-    return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [dirty]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
-        event.preventDefault();
-        setSaveState('saving');
-        onSave(cells)
-          .then(() => {
-            setDirty(false);
-            setSaveState('saved');
-          })
-          .catch(() => setSaveState('error'));
-      }
-      if (event.key === 'Enter' && !editing) {
-        setEditing(active);
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [active, cells, editing, onSave]);
-
-  const selectCell = (id: string, shift: boolean) => {
-    setActive(id);
-    if (shift) {
-      setSelectionEnd(id);
-    } else {
-      setSelectionStart(id);
-      setSelectionEnd(id);
-    }
-  };
-
-  const setCell = (id: string, value: string) => {
-    setCells(currentCells => {
-      const next = {
-        ...currentCells,
-        [id]: makeCell(value, currentCells),
-      };
-      return recalculateCells(next);
-    });
-    setDirty(true);
-    setSaveState('saving');
-  };
-
-  const manualSave = () => {
-    setSaveState('saving');
-    onSave(cells)
-      .then(() => {
-        setDirty(false);
-        setSaveState('saved');
-      })
-      .catch(() => setSaveState('error'));
-  };
-
-  const inSelection = (row: number, col: number) => {
-    const start = selectionStart.match(/^([A-Z]+)(\d+)$/);
-    const end = selectionEnd.match(/^([A-Z]+)(\d+)$/);
-    if (!start || !end) {
-      return false;
-    }
-    const startRow = Number(start[2]) - 1;
-    const endRow = Number(end[2]) - 1;
-    const startCol = start[1].split('').reduce((sum, letter) => sum * 26 + letter.charCodeAt(0) - 64, 0) - 1;
-    const endCol = end[1].split('').reduce((sum, letter) => sum * 26 + letter.charCodeAt(0) - 64, 0) - 1;
-
-    return row >= Math.min(startRow, endRow)
-      && row <= Math.max(startRow, endRow)
-      && col >= Math.min(startCol, endCol)
-      && col <= Math.max(startCol, endCol);
-  };
-
-  const changeSize = async (patch: Partial<Document>) => {
-    await onChangeDoc(patch);
-  };
-
-  const insertRow = (row: number) => {
-    const data = shiftRows(cells, row, 1);
-    setRows(value => value + 1);
-    setCells(data);
-    setDirty(true);
-    setSaveState('saving');
-    void changeSize({ rows: rows + 1, data });
-  };
-
-  const deleteRow = (row: number) => {
-    if (rows <= 1) {
-      return;
-    }
-    const data = shiftRows(cells, row, -1);
-    setRows(value => value - 1);
-    setCells(data);
-    setDirty(true);
-    setSaveState('saving');
-    void changeSize({ rows: rows - 1, data });
-  };
-
-  const insertCol = (col: number) => {
-    const data = shiftCols(cells, col, 1);
-    setCols(value => value + 1);
-    setCells(data);
-    setDirty(true);
-    setSaveState('saving');
-    void changeSize({ cols: cols + 1, data });
-  };
-
-  const deleteCol = (col: number) => {
-    if (cols <= 1) {
-      return;
-    }
-    const data = shiftCols(cells, col, -1);
-    setCols(value => value - 1);
-    setCells(data);
-    setDirty(true);
-    setSaveState('saving');
-    void changeSize({ cols: cols - 1, data });
+  const changeCell = (id: string, value: string) => {
+    dispatch(setCell({ id, value }));
   };
 
   const startResize = (kind: 'row' | 'col', index: number, start: number) => {
     const base = kind === 'col' ? colWidths[index] || DEFAULT_COL_WIDTH : rowHeights[index] || DEFAULT_ROW_HEIGHT;
-    let nextColWidths = colWidths;
-    let nextRowHeights = rowHeights;
 
     const move = (event: MouseEvent) => {
       const size = Math.max(24, base + (kind === 'col' ? event.clientX - start : event.clientY - start));
       if (kind === 'col') {
-        nextColWidths = { ...nextColWidths, [index]: size };
-        setColWidths(nextColWidths);
+        dispatch(resizeCol({ col: index, width: size }));
       } else {
-        nextRowHeights = { ...nextRowHeights, [index]: size };
-        setRowHeights(nextRowHeights);
+        dispatch(resizeRow({ row: index, height: size }));
       }
     };
 
     const up = () => {
       document.removeEventListener('mousemove', move);
       document.removeEventListener('mouseup', up);
-      void onChangeDoc({ colWidths: nextColWidths, rowHeights: nextRowHeights });
     };
 
     document.addEventListener('mousemove', move);
@@ -292,11 +142,15 @@ export default function Spreadsheet({ doc, onBack, onSave, onChangeDoc }: Spread
     const rowsForCsv = Array.from({ length: rows }, (_, row) => (
       Array.from({ length: cols }, (_, col) => cells[getCellId(row, col)]?.raw || '')
     ));
-    downloadFile(`${doc.title}.csv`, toCsv(rowsForCsv), 'text/csv;charset=utf-8');
+    downloadFile(`${activeDocument?.title || 'table'}.csv`, toCsv(rowsForCsv), 'text/csv;charset=utf-8');
   };
 
   const exportJson = () => {
-    downloadFile(`${doc.title}.json`, JSON.stringify({ ...doc, rows, cols, data: cells }, null, 2), 'application/json');
+    downloadFile(
+      `${activeDocument?.title || 'table'}.json`,
+      JSON.stringify({ ...activeDocument, rows, cols, colWidths, rowHeights, data: cells }, null, 2),
+      'application/json',
+    );
   };
 
   const importCsv = (file: File) => {
@@ -304,6 +158,7 @@ export default function Spreadsheet({ doc, onBack, onSave, onChangeDoc }: Spread
       window.setTimeout(() => {
         const parsed = parseCsv(text);
         const data: SpreadsheetData = {};
+
         parsed.forEach((row, rowIndex) => {
           row.forEach((value, colIndex) => {
             if (value !== '') {
@@ -311,13 +166,14 @@ export default function Spreadsheet({ doc, onBack, onSave, onChangeDoc }: Spread
             }
           });
         });
-        const next = recalculateCells(data);
-        setRows(Math.max(parsed.length, 1));
-        setCols(Math.max(...parsed.map(row => row.length), 1));
-        setCells(next);
-        setDirty(true);
-        setSaveState('saving');
-        void onChangeDoc({ rows: Math.max(parsed.length, 1), cols: Math.max(...parsed.map(row => row.length), 1), data: next });
+
+        dispatch(importData({
+          cells: data,
+          rows: Math.max(parsed.length, 1),
+          cols: Math.max(...parsed.map(row => row.length), 1),
+          colWidths: {},
+          rowHeights: {},
+        }));
       }, 0);
     });
   };
@@ -326,9 +182,11 @@ export default function Spreadsheet({ doc, onBack, onSave, onChangeDoc }: Spread
     <main className="st-wrapper" onClick={() => setMenu(null)}>
       <div className="toolbar">
         <button className="btn" onClick={onBack}>Назад</button>
-        <strong>{doc.title}</strong>
-        <span className={`save-state ${saveState}`}>{saveState === 'saved' ? 'Сохранено' : saveState === 'saving' ? 'Сохранение...' : 'Ошибка сохранения'}</span>
-        <button className="btn" onClick={manualSave}><Save size={16} /> Сохранить</button>
+        <strong>{activeDocument?.title}</strong>
+        <span className={`save-state ${saveStatus}`}>
+          {saveStatus === 'saved' ? 'Сохранено' : saveStatus === 'saving' ? 'Сохранение...' : 'Ошибка сохранения'}
+        </span>
+        <button className="btn" onClick={() => dispatch(saveActiveDocument())}><Save size={16} /> Сохранить</button>
         <button className="btn" onClick={exportCsv}><Download size={16} /> CSV</button>
         <button className="btn" onClick={exportJson}><Download size={16} /> JSON</button>
         <button className="btn" onClick={() => fileRef.current?.click()}><Upload size={16} /> Импорт CSV</button>
@@ -341,11 +199,11 @@ export default function Spreadsheet({ doc, onBack, onSave, onChangeDoc }: Spread
       </div>
 
       <div className="f-bar">
-        <div className="f-id">{active}</div>
-        <input value={cells[active]?.raw || ''} onChange={(event) => setCell(active, event.target.value)} />
+        <div className="f-id">{activeCell}</div>
+        <input value={cells[activeCell]?.raw || ''} onChange={(event) => changeCell(activeCell, event.target.value)} />
       </div>
 
-      <div className="sheet" ref={sheetRef} style={{ height: SHEET_HEIGHT }} onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}>
+      <div className="sheet" style={{ height: SHEET_HEIGHT }} onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}>
         <div className="grid-h">
           <div className="corner-cell" />
           {Array.from({ length: cols }, (_, col) => (
@@ -384,9 +242,9 @@ export default function Spreadsheet({ doc, onBack, onSave, onChangeDoc }: Spread
                 return (
                   <div
                     key={id}
-                    className={`cell-unit ${active === id ? 'active' : ''} ${inSelection(row, col) ? 'selected' : ''}`}
+                    className={`cell-unit ${activeCell === id ? 'active' : ''} ${isSelected(id, selectionStart, selectionEnd) ? 'selected' : ''}`}
                     style={{ width: colWidths[col] || DEFAULT_COL_WIDTH, height: rowHeights[row] || DEFAULT_ROW_HEIGHT }}
-                    onClick={(event) => selectCell(id, event.shiftKey)}
+                    onClick={(event) => dispatch(selectCell({ id, shift: event.shiftKey }))}
                     onDoubleClick={() => setEditing(id)}
                     onContextMenu={(event) => {
                       event.preventDefault();
@@ -397,7 +255,7 @@ export default function Spreadsheet({ doc, onBack, onSave, onChangeDoc }: Spread
                       <input
                         autoFocus
                         value={cell?.raw || ''}
-                        onChange={(event) => setCell(id, event.target.value)}
+                        onChange={(event) => changeCell(id, event.target.value)}
                         onBlur={() => setEditing(null)}
                         onKeyDown={(event) => {
                           if (event.key === 'Enter') {
@@ -418,10 +276,10 @@ export default function Spreadsheet({ doc, onBack, onSave, onChangeDoc }: Spread
 
       {menu && (
         <div className="context-menu" style={{ left: menu.x, top: menu.y }} onClick={(event) => event.stopPropagation()}>
-          <button onClick={() => insertRow(menu.row)}>Добавить строку</button>
-          <button onClick={() => deleteRow(menu.row)}>Удалить строку</button>
-          <button onClick={() => insertCol(menu.col)}>Добавить столбец</button>
-          <button onClick={() => deleteCol(menu.col)}>Удалить столбец</button>
+          <button onClick={() => dispatch(insertRow(menu.row))}>Добавить строку</button>
+          <button onClick={() => dispatch(deleteRow(menu.row))}>Удалить строку</button>
+          <button onClick={() => dispatch(insertCol(menu.col))}>Добавить столбец</button>
+          <button onClick={() => dispatch(deleteCol(menu.col))}>Удалить столбец</button>
         </div>
       )}
     </main>
