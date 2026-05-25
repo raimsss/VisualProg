@@ -1,10 +1,14 @@
 .st-wrapper { padding: 10px; }
+.toolbar { margin-bottom: 8px; }
 .f-bar { display: flex; border: 1px solid #999; margin-bottom: 4px; }
 .f-id { width: 50px; background: #eee; text-align: center; border-right: 1px solid #999; padding: 4px; font-weight: bold; }
 .f-bar input { flex: 1; border: none; outline: none; padding: 4px; }
 
+.sheet { width: max-content; max-width: 100%; overflow: auto; border: 1px solid #ddd; }
+.sheet-row { display: flex; }
 .grid-h { display: flex; background: #eee; }
 .col-h { width: 100px; text-align: center; border-right: 1px solid #ccc; border-bottom: 1px solid #ccc; font-weight: bold; }
+.corner-cell { width: 40px; border-right: 1px solid #ccc; border-bottom: 1px solid #ccc; }
 .row-num { width: 40px; background: #eee; text-align: center; border-right: 1px solid #ccc; border-bottom: 1px solid #ccc; font-size: 11px; line-height: 30px; }
 
 .cell-unit { width: 100px; height: 30px; border-right: 1px solid #ddd; border-bottom: 1px solid #ddd; }

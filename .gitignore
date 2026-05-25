@@ -12,12 +12,15 @@ node_modules
 dist
 dist-ssr
 *.local
+.test-build
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
 .gigaide
+.agents
+.codex
 .DS_Store
 *.suo
 *.ntvs*

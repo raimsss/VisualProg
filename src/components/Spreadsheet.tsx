@@ -1,44 +1,32 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { FixedSizeList as List } from 'react-window';
-import { Document } from '../types';
+import { useEffect, useState } from 'react';
+import type { Document, SpreadsheetData } from '../types';
+import { makeCell } from '../cells';
 
-const ROWS = 1000;
-const COLS = 26;
+const ROWS = 40;
+const COLS = 10;
 const COL_NAMES = Array.from({ length: COLS }, (_, i) => String.fromCharCode(65 + i));
 
-export default function Spreadsheet({ doc, onBack, onSave }: { doc: Document, onBack: () => void, onSave: (data: any) => void }) {
-  const [cells, setCells] = useState(doc.data || {});
+interface SpreadsheetProps {
+  doc: Document;
+  onBack: () => void;
+  onSave: (data: SpreadsheetData) => void;
+}
+
+export default function Spreadsheet({ doc, onBack, onSave }: SpreadsheetProps) {
+  const [cells, setCells] = useState<SpreadsheetData>(doc.data);
   const [active, setActive] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => onSave(cells), 500);
     return () => clearTimeout(timer);
-  }, [cells]);
+  }, [cells, onSave]);
 
   const handleChange = (id: string, val: string) => {
-    setCells((prev: any) => ({
+    setCells(prev => ({
       ...prev,
-      [id]: { raw: val, value: val.startsWith('=') ? "CALC..." : val }
+      [id]: makeCell(val),
     }));
   };
-
-  const Row = useCallback(({ index, style }: any) => (
-    <div style={{ ...style, display: 'flex' }}>
-      <div className="row-num">{index + 1}</div>
-      {COL_NAMES.map(col => {
-        const id = `${col}${index + 1}`;
-        return (
-          <div key={id} className={`cell-unit ${active === id ? 'active' : ''}`}>
-            <input
-              value={active === id ? (cells[id]?.raw || '') : (cells[id]?.value || '')}
-              onChange={(e) => handleChange(id, e.target.value)}
-              onFocus={() => setActive(id)}
-            />
-          </div>
-        );
-      })}
-    </div>
-  ), [cells, active]);
 
   return (
     <div className="st-wrapper">
@@ -53,9 +41,29 @@ export default function Spreadsheet({ doc, onBack, onSave }: { doc: Document, on
           onChange={(e) => active && handleChange(active, e.target.value)}
         />
       </div>
-      <List height={500} itemCount={ROWS} itemSize={30} width={COLS * 100 + 40}>
-        {Row}
-      </List>
+      <div className="sheet">
+        <div className="grid-h">
+          <div className="corner-cell" />
+          {COL_NAMES.map(col => <div key={col} className="col-h">{col}</div>)}
+        </div>
+        {Array.from({ length: ROWS }, (_, rowIndex) => (
+          <div className="sheet-row" key={rowIndex}>
+            <div className="row-num">{rowIndex + 1}</div>
+            {COL_NAMES.map(col => {
+              const id = `${col}${rowIndex + 1}`;
+              return (
+                <div key={id} className={`cell-unit ${active === id ? 'active' : ''}`}>
+                  <input
+                    value={active === id ? (cells[id]?.raw || '') : (cells[id]?.value || '')}
+                    onChange={(e) => handleChange(id, e.target.value)}
+                    onFocus={() => setActive(id)}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

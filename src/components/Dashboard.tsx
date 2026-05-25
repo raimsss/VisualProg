@@ -1,13 +1,26 @@
-import React from 'react';
 import { FileSpreadsheet, Plus, Trash2 } from 'lucide-react';
-import { Document } from '../types';
+import type { Document } from '../types';
 
-export default function Dashboard({ docs, onSelect, onCreate, onDelete }: any) {
+interface DashboardProps {
+  docs: Document[];
+  onSelect: (doc: Document) => void;
+  onCreate: (title: string) => void;
+  onDelete: (id: string) => void;
+}
+
+export default function Dashboard({ docs, onSelect, onCreate, onDelete }: DashboardProps) {
+  const askTitle = () => {
+    const title = prompt('Название?')?.trim();
+    if (title) {
+      onCreate(title);
+    }
+  };
+
   return (
     <div className="p-8">
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
         <h1>Мои документы</h1>
-        <button onClick={() => onCreate(prompt('Название?'))} className="btn-create">
+        <button onClick={askTitle} className="btn-create">
           <Plus size={18} /> Создать таблицу
         </button>
       </div>
