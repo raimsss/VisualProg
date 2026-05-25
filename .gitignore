@@ -20,7 +20,6 @@ dist-ssr
 .idea
 .gigaide
 .agents
-.codex
 .DS_Store
 *.suo
 *.ntvs*
